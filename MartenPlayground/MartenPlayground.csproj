@@ -67,6 +67,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CustomRegistry.cs" />
     <Compile Include="Domain\Child.cs" />
     <Compile Include="Domain\Document.cs" />
     <Compile Include="Program.cs" />

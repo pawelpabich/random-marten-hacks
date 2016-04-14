@@ -28,10 +28,17 @@ namespace MartenPlayground
 
                 var store = CreateStore();
 
-                DoNothing(store);
                 StoreSingleDocument(store);
                 StoreSingleDocument(store);
+
                 QueryUsingRawSql(store);
+                QueryUsingRawSql(store);
+
+                QueryUsingNestedProperty(store);
+                QueryUsingNestedProperty(store);
+
+                QueryUsingDuplicatedNestedProperty(store);
+                QueryUsingDuplicatedNestedProperty(store);
             }
             catch (Exception e)
             {
@@ -39,6 +46,32 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
+        }
+
+        private static void QueryUsingDuplicatedNestedProperty(DocumentStore store)
+        {
+            var document = StoreSingleDocument(store);
+            Meassure(() =>
+            {
+                using (var session = store.OpenSession())
+                {
+                    var result = session.Query<Document>().Single(d => d.Child.DuplicatedNestedProperty == document.Child.DuplicatedNestedProperty);
+                    result.Child.DuplicatedNestedProperty.ShouldBe(document.Child.DuplicatedNestedProperty);
+                }
+            });
+        }
+
+        private static void QueryUsingNestedProperty(DocumentStore store)
+        {
+            var document = StoreSingleDocument(store);
+            Meassure(() =>
+            {
+                using (var session = store.OpenSession())
+                {
+                    var result = session.Query<Document>().Single(d => d.Child.NestedProperty == document.Child.NestedProperty);
+                    result.Child.NestedProperty.ShouldBe(document.Child.NestedProperty);
+                }
+            });
         }
 
         private static void QueryUsingRawSql(DocumentStore store)
@@ -59,6 +92,7 @@ namespace MartenPlayground
             return DocumentStore.For(config =>
             {
                 config.Connection("host = localhost; database = marten; password = password; username = martenuser");
+                config.Schema.Include<CustomRegistry>();
                 
             });
         }
@@ -80,7 +114,8 @@ namespace MartenPlayground
 
         public static Document CreateDefaultDocument()
         {
-            return new Document(Guid.NewGuid(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), new Child(Guid.NewGuid().ToString()));
+            var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            return new Document(Guid.NewGuid(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), child);
         }
 
         private static void ConfigureLogging()
