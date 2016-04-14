@@ -13,10 +13,7 @@ namespace MartenPlayground
     {
         static void Main(string[] args)
         {
-            //Paging
-            //Serilog
             //Slow startu up
-            //Add Seperate properties
             //Migraations
             //Read http://jasperfx.github.io/marten/documentation/documents/saved_queries/
             //Server status to monitor questions
@@ -39,6 +36,9 @@ namespace MartenPlayground
 
                 QueryUsingDuplicatedNestedProperty(store);
                 QueryUsingDuplicatedNestedProperty(store);
+
+                QueryUsingPaging(store);
+                QueryUsingPaging(store);
             }
             catch (Exception e)
             {
@@ -46,6 +46,27 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
+        }
+
+        private static void QueryUsingPaging(DocumentStore store)
+        {
+            var searchTerm = Guid.NewGuid().ToString();
+
+            using (var session = store.OpenSession())
+            {
+                var documents= Enumerable.Range(0, 10).Select(i => CreateDefaultDocument(searchTerm + i));
+                session.StoreObjects(documents);
+                session.SaveChanges();
+            }
+
+            Meassure(() =>
+            {
+                using (var session = store.OpenSession())
+                {
+                    var results = session.Query<Document>().Skip(5).Take(5).Where(d => d.TopLevelProperty.Contains(searchTerm)).ToArray();
+                    results.Length.ShouldBe(5);
+                }
+            });
         }
 
         private static void QueryUsingDuplicatedNestedProperty(DocumentStore store)
@@ -92,8 +113,7 @@ namespace MartenPlayground
             return DocumentStore.For(config =>
             {
                 config.Connection("host = localhost; database = marten; password = password; username = martenuser");
-                config.Schema.Include<CustomRegistry>();
-                
+                config.Schema.Include<CustomRegistry>();                
             });
         }
 
@@ -112,10 +132,11 @@ namespace MartenPlayground
             });
         }
 
-        public static Document CreateDefaultDocument()
+        public static Document CreateDefaultDocument(string topLevelProperty = null)
         {
+            topLevelProperty = topLevelProperty ?? Guid.NewGuid().ToString();
             var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
-            return new Document(Guid.NewGuid(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), child);
+            return new Document(Guid.NewGuid(), topLevelProperty, Guid.NewGuid().ToString(), child);
         }
 
         private static void ConfigureLogging()
