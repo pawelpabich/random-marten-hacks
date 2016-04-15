@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Marten;
 using Marten.Linq;
+using Marten.Util;
 using MartenPlayground.Domain;
 using Npgsql;
 using Serilog;
@@ -52,6 +53,9 @@ namespace MartenPlayground
 
                 StoreLotsOfData(storeV2, 10);
                 StoreLotsOfData(storeV2, 1000);
+
+                QueryLotsOfData(storeV2, 10);
+                QueryLotsOfData(storeV2, 1000);
             }
             catch (Exception e)
             {
@@ -59,6 +63,30 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
+        }
+
+        private static void QueryLotsOfData(DocumentStore storeV2, int users)
+        {
+            Meassure(() =>
+            {
+                var tasks = Enumerable.Range(0, users).Select(i =>
+                {
+                    return Task.Run(async () =>
+                    {
+                        Log.Debug("{I}th customer about to be processed.", i);
+                        using (var session = storeV2.OpenSession(isolationLevel: IsolationLevel.ReadCommitted))
+                        {
+                            await session.Query<Domain.V2.Document>().Take(5).ToListAsync();
+                        }
+
+                        Log.Debug("{I}th customer done.", i);
+                    });
+                }).ToArray();
+
+                Log.Information("All tasks created: {Number}.", tasks.Length);
+
+                Task.WaitAll(tasks);
+            });
         }
 
         private static void StoreLotsOfData(DocumentStore storeV2, int users)
