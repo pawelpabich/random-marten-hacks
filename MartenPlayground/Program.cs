@@ -15,13 +15,9 @@ namespace MartenPlayground
     {
         static void Main(string[] args)
         {
-            //Slow startu up
-            //Dates
-            //How to setup database
             try
             {
                 //Marten can take up to 6 seconds to start up. Details here: https://github.com/JasperFx/marten/issues/289
-
                 ConfigureLogging();
                 Log.Information("Starting execution ...");
 
