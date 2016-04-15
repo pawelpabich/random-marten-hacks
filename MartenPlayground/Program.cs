@@ -6,7 +6,9 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Marten;
 using Marten.Linq;
+using Marten.Schema;
 using Marten.Util;
+using MartenPlayground.Config;
 using MartenPlayground.Domain;
 using Npgsql;
 using Serilog;
@@ -16,6 +18,8 @@ namespace MartenPlayground
 {
     class Program
     {
+        private const string ConnectionString = "host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 50;Minimum Pool Size = 50";
+
         static void Main(string[] args)
         {
             try
@@ -24,39 +28,39 @@ namespace MartenPlayground
                 ConfigureLogging();
                 Log.Information("Starting execution ...");
 
-                var storeV1 = CreateStoreV1();
+                //var storeV1 = CreateStoreV1();
 
-                StoreSingleDocument(storeV1);
-                StoreSingleDocument(storeV1);
+                //StoreSingleDocument(storeV1);
+                //StoreSingleDocument(storeV1);
 
-                QueryUsingRawSql(storeV1);
-                QueryUsingRawSql(storeV1);
+                //QueryUsingRawSql(storeV1);
+                //QueryUsingRawSql(storeV1);
 
-                QueryUsingNestedProperty(storeV1);
-                QueryUsingNestedProperty(storeV1);
+                //QueryUsingNestedProperty(storeV1);
+                //QueryUsingNestedProperty(storeV1);
 
-                QueryUsingDuplicatedNestedProperty(storeV1);
-                QueryUsingDuplicatedNestedProperty(storeV1);
+                //QueryUsingDuplicatedNestedProperty(storeV1);
+                //QueryUsingDuplicatedNestedProperty(storeV1);
 
-                QueryUsingPaging(storeV1);
-                QueryUsingPaging(storeV1);
+                //QueryUsingPaging(storeV1);
+                //QueryUsingPaging(storeV1);
 
-                UpdateDocument(storeV1);
-                UpdateDocument(storeV1);
+                //UpdateDocument(storeV1);
+                //UpdateDocument(storeV1);
 
                 var storeV2 = CreateStoreV2();
 
-                MigrateToDocumentV2(storeV1, storeV2);
+                //MigrateToDocumentV2(storeV1, storeV2);
 
-                QueryUsingDateRange(storeV2);
-                QueryUsingDateRange(storeV2);
+                //QueryUsingDateRange(storeV2);
+                //QueryUsingDateRange(storeV2);
 
                 StoreSingleDocumentInternalV2(storeV2);
                 StoreLotsOfData(storeV2, 10, 1);
-                StoreLotsOfData(storeV2, 1000, 1);
+                StoreLotsOfData(storeV2, 1000, 10);
 
-                QueryLotsOfData(storeV2, 10);
-                QueryLotsOfData(storeV2, 1000);
+               // QueryLotsOfData(storeV2, 10);
+               // QueryLotsOfData(storeV2, 1000);
             }
             catch (Exception e)
             {
@@ -68,19 +72,21 @@ namespace MartenPlayground
 
         private static void QueryLotsOfData(DocumentStore storeV2, int users)
         {
+            var everyNTh = users / 10;
+
             Meassure(() =>
             {
                 var tasks = Enumerable.Range(0, users).Select(i =>
                 {
                     return Task.Run(async () =>
                     {
-                        Log.Debug("{I}th customer about to be processed.", i);
+                        if (i % everyNTh == 0) Log.Debug("{I}th customer about to be processed.", i);
                         using (var session = storeV2.OpenSession(isolationLevel: IsolationLevel.ReadCommitted))
                         {
                             await session.Query<Domain.V2.Document>().Take(5).ToListAsync();
                         }
 
-                        Log.Debug("{I}th customer done.", i);
+                        if (i % everyNTh == 0) Log.Debug("{I}th customer done.", i);
                     });
                 }).ToArray();
 
@@ -198,7 +204,7 @@ namespace MartenPlayground
 
             using (var session = store.OpenSession())
             {
-                var documents= Enumerable.Range(0, 10).Select(i => CreateDefaultDocumentV1(searchTerm + i));
+                var documents= Enumerable.Range(0, 10).Select(i => MartenPlayground.CreateDefaultDocumentV1.Run(searchTerm + i));
                 session.StoreObjects(documents);
                 session.SaveChanges();
             }
@@ -258,9 +264,10 @@ namespace MartenPlayground
         {
             return DocumentStore.For(config =>
             {
-                config.Connection("host = localhost; database = marten; password = password; username = martenuser");
+                config.Connection(ConnectionString);
                 config.Schema.Include<CustomRegistry>();
                 config.Schema.For<Document>().DocumentAlias("document");
+                config.UpsertType = PostgresUpsertType.Standard;
             });
         }
 
@@ -268,9 +275,10 @@ namespace MartenPlayground
         {
             return DocumentStore.For(config =>
             {
-                config.Connection("host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 75;Minimum Pool Size = 75");
+                config.Connection(ConnectionString);
                 config.Schema.Include<CustomRegistryV2>();
                 config.Schema.For<Domain.V2.Document>().DocumentAlias("document");
+                config.UpsertType = PostgresUpsertType.Standard;
             });
         }
 
@@ -283,7 +291,7 @@ namespace MartenPlayground
         {
             using (var session = store.OpenSession())
             {
-                var document = CreateDefaultDocumentV1();
+                var document = MartenPlayground.CreateDefaultDocumentV1.Run();
                 session.Store(document);
                 session.SaveChanges();
 
@@ -298,13 +306,6 @@ namespace MartenPlayground
                 session.Store(CreateDefaultDocumentV2());
                 session.SaveChanges();
             }
-        }
-
-        public static Document CreateDefaultDocumentV1(string topLevelProperty = null)
-        {
-            topLevelProperty = topLevelProperty ?? Guid.NewGuid().ToString();
-            var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
-            return new Document(Guid.NewGuid(), topLevelProperty, Guid.NewGuid().ToString(), child);
         }
 
         public static Domain.V2.Document CreateDefaultDocumentV2(DateTimeOffset? dateTime = null, string topLevelProperty = null)

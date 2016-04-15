@@ -67,8 +67,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CustomRegistryV2.cs" />
-    <Compile Include="CustomRegistry.cs" />
+    <Compile Include="CreateDefaultDocumentV1.cs" />
+    <Compile Include="Config\CustomRegistryV2.cs" />
+    <Compile Include="Config\CustomRegistry.cs" />
     <Compile Include="Domain\Child.cs" />
     <Compile Include="Domain\Document.cs" />
     <Compile Include="Domain\V2\Document.cs" />
@@ -76,7 +77,9 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App.config">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

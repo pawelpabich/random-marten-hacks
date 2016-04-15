@@ -1,7 +1,7 @@
 using Marten;
 using MartenPlayground.Domain;
 
-namespace MartenPlayground
+namespace MartenPlayground.Config
 {
     public class CustomRegistry : MartenRegistry
     {
