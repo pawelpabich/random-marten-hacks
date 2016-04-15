@@ -4,22 +4,22 @@ namespace MartenPlayground.Domain.V2
 {
     public class Document
     {
-        public Document(Guid id, string topLevelPropertyV2, string duplicatedProperty, Child child)
+        public Document(Guid id, string topLevelProperty, string duplicatedProperty, long dateTimeAsUnixTime, Child child)
         {
             Id = id;
-            TopLevelPropertyV2 = topLevelPropertyV2;
+            TopLevelProperty = topLevelProperty;
             DuplicatedProperty = duplicatedProperty;
             Child = child;
+            DateTimeAsUnixTime = dateTimeAsUnixTime;
         }
 
         public Guid Id { get; private set; }
-        public string TopLevelPropertyV2 { get; private set; }
+        public string TopLevelProperty { get; private set; }
         public string DuplicatedProperty { get; private set; }
-        public Child Child { get; private set; }
+        public long DateTimeAsUnixTime { get; private set; }
 
-        public void SetTopLevelPropertyV2(string newValue)
-        {
-            TopLevelPropertyV2 = newValue;
-        }
+
+        public Child Child { get; private set; }
+        
     }
 }

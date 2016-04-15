@@ -16,14 +16,12 @@ namespace MartenPlayground
         static void Main(string[] args)
         {
             //Slow startu up
-            //Migrations
             //Dates
-            //Read http://jasperfx.github.io/marten/documentation/documents/saved_queries/
-            //Server status to monitor questions  store.Diagnostics.CommandFor(q
             //How to setup database
-            //Fix command generation ToCommand http://jasperfx.github.io/marten/documentation/documents/diagnostics/#sec3
             try
             {
+                //Marten can take up to 6 seconds to start up. Details here: https://github.com/JasperFx/marten/issues/289
+
                 ConfigureLogging();
                 Log.Information("Starting execution ...");
 
@@ -50,6 +48,10 @@ namespace MartenPlayground
                 var storeV2 = CreateStoreV2();
 
                 MigrateToDocumentV2(storeV1, storeV2);
+
+                QueryUsingDateRange(storeV2);
+                QueryUsingDateRange(storeV2);
+
             }
             catch (Exception e)
             {
@@ -59,21 +61,46 @@ namespace MartenPlayground
             Console.ReadLine();
         }
 
-        private static void MigrateToDocumentV2(DocumentStore storeV1, DocumentStore storeV2)
+        private static void QueryUsingDateRange(DocumentStore storeV2)
         {
-            var documentId = StoreSingleDocumentInternal(storeV1).Id;
+            var dateTime = DateTimeOffset.UtcNow;
+            var searchText = Guid.NewGuid().ToString();
+
+            using (var session = storeV2.OpenSession())
+            {
+                var documents = Enumerable.Range(0, 10).Select(i => CreateDefaultDocumentV2(dateTime.AddDays(i), searchText));
+                session.StoreObjects(documents);
+                session.SaveChanges();
+            }
 
             Meassure(() =>
             {
                 using (var session = storeV2.OpenSession())
                 {
+                    var future = dateTime.AddDays(4.5).ToUnixTimeMilliseconds();
+                    var results = session.Query<Domain.V2.Document>().Where(d => d.DateTimeAsUnixTime > future && d.TopLevelProperty == searchText).ToArray();
+                    results.Length.ShouldBe(5);
+                }
+            });
+        }
+
+        private static void MigrateToDocumentV2(DocumentStore storeV1, DocumentStore storeV2)
+        {
+            var documentId = StoreSingleDocumentInternal(storeV1).Id;
+            var nowAsUnixTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Meassure(() =>
+            {
+                using (var session = storeV2.OpenSession())
+                {
                     var documentV2 = session.Load<Domain.V2.Document>(documentId);
-                    documentV2.TopLevelPropertyV2.ShouldBe(null);
+                    documentV2.DateTimeAsUnixTime.ShouldBe(0);
 
                     var removeProperty = new NpgsqlCommand("Update mt_doc_document SET data = data - 'TopLevelProperty'", session.Connection);
                     removeProperty.ExecuteNonQuery();
 
-                    var addProperty = new NpgsqlCommand("Update mt_doc_document SET data = jsonb_set(data, '{TopLevelPropertyV2}', '\"TopLevelPropertyV2\"', true)", session.Connection);
+                    
+                    var addCommand = "Update mt_doc_document SET data = jsonb_set(data, '{DateTimeAsUnixTime}', '" + nowAsUnixTime + "', true)";
+                    var addProperty = new NpgsqlCommand(addCommand, session.Connection);
                     addProperty.ExecuteNonQuery();
 
                     session.SaveChanges();
@@ -83,7 +110,7 @@ namespace MartenPlayground
             using (var session = storeV2.OpenSession())
             {
                 var documentV2 = session.Load<Domain.V2.Document>(documentId);
-                documentV2.TopLevelPropertyV2.ShouldBe("TopLevelPropertyV2");
+                documentV2.DateTimeAsUnixTime.ShouldBe(nowAsUnixTime);
             }
         }
 
@@ -116,7 +143,7 @@ namespace MartenPlayground
 
             using (var session = store.OpenSession())
             {
-                var documents= Enumerable.Range(0, 10).Select(i => CreateDefaultDocument(searchTerm + i));
+                var documents= Enumerable.Range(0, 10).Select(i => CreateDefaultDocumentV1(searchTerm + i));
                 session.StoreObjects(documents);
                 session.SaveChanges();
             }
@@ -192,16 +219,16 @@ namespace MartenPlayground
             });
         }
 
-        private static Document StoreSingleDocument(DocumentStore store)
+        private static void StoreSingleDocument(DocumentStore store)
         {
-            return Meassure(() => StoreSingleDocumentInternal(store));
+            Meassure(() => StoreSingleDocumentInternal(store));
         }
 
         private static Document StoreSingleDocumentInternal(DocumentStore store)
         {
             using (var session = store.OpenSession())
             {
-                var document = CreateDefaultDocument();
+                var document = CreateDefaultDocumentV1();
                 session.Store(document);
                 session.SaveChanges();
 
@@ -209,11 +236,21 @@ namespace MartenPlayground
             }
         }
 
-        public static Document CreateDefaultDocument(string topLevelProperty = null)
+        public static Document CreateDefaultDocumentV1(string topLevelProperty = null)
         {
             topLevelProperty = topLevelProperty ?? Guid.NewGuid().ToString();
             var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
             return new Document(Guid.NewGuid(), topLevelProperty, Guid.NewGuid().ToString(), child);
+        }
+
+        public static Domain.V2.Document CreateDefaultDocumentV2(DateTimeOffset? dateTime = null, string topLevelProperty = null)
+        {           
+            dateTime = dateTime ?? DateTimeOffset.UtcNow;
+            topLevelProperty = topLevelProperty ?? Guid.NewGuid().ToString();
+
+            var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            return new Domain.V2.Document(Guid.NewGuid(), topLevelProperty, Guid.NewGuid().ToString(),
+                                          dateTime.Value.ToUnixTimeMilliseconds(), child);
         }
 
         private static void ConfigureLogging()
