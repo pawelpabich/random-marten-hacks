@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Marten;
 using Marten.Linq;
 using MartenPlayground.Domain;
@@ -48,6 +50,8 @@ namespace MartenPlayground
                 QueryUsingDateRange(storeV2);
                 QueryUsingDateRange(storeV2);
 
+                StoreLotsOfData(storeV2, 10);
+                StoreLotsOfData(storeV2, 1000);
             }
             catch (Exception e)
             {
@@ -55,6 +59,31 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
+        }
+
+        private static void StoreLotsOfData(DocumentStore storeV2, int users)
+        {
+            Meassure(() =>
+            {
+                var tasks = Enumerable.Range(0, users).Select(i =>
+                {
+                    return Task.Run(async () =>
+                    {
+                        Log.Debug("{I}th customer about to be processed.", i);
+                        using (var session = storeV2.OpenSession(isolationLevel:IsolationLevel.ReadCommitted))
+                        {
+                            session.Store(CreateDefaultDocumentV2());
+                            await session.SaveChangesAsync();                            
+                        }
+
+                        Log.Debug("{I}th customer done.", i);
+                    });
+                }).ToArray();
+
+                Log.Information("All tasks created: {Number}.", tasks.Length);
+
+                Task.WaitAll(tasks);
+            });      
         }
 
         private static void QueryUsingDateRange(DocumentStore storeV2)
@@ -209,7 +238,7 @@ namespace MartenPlayground
         {
             return DocumentStore.For(config =>
             {
-                config.Connection("host = localhost; database = marten; password = password; username = martenuser");
+                config.Connection("host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 10");
                 config.Schema.Include<CustomRegistryV2>();
                 config.Schema.For<Domain.V2.Document>().DocumentAlias("document");
             });
@@ -251,8 +280,10 @@ namespace MartenPlayground
 
         private static void ConfigureLogging()
         {
-            Log.Logger = new LoggerConfiguration().WriteTo.LiterateConsole()
-                                                .CreateLogger();
+            Log.Logger = new LoggerConfiguration()
+                                .MinimumLevel.Debug()
+                                .WriteTo.LiterateConsole()
+                                .CreateLogger();
         }
 
         private static void Meassure(Action action, [CallerMemberName] string memberName = "")
