@@ -67,9 +67,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CustomRegistryV2.cs" />
     <Compile Include="CustomRegistry.cs" />
     <Compile Include="Domain\Child.cs" />
     <Compile Include="Domain\Document.cs" />
+    <Compile Include="Domain\V2\Document.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

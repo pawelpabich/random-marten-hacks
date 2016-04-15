@@ -1,25 +1,25 @@
 ﻿using System;
 
-namespace MartenPlayground.Domain
+namespace MartenPlayground.Domain.V2
 {
     public class Document
     {
-        public Document(Guid id, string topLevelProperty, string duplicatedProperty, Child child)
+        public Document(Guid id, string topLevelPropertyV2, string duplicatedProperty, Child child)
         {
             Id = id;
-            TopLevelProperty = topLevelProperty;
+            TopLevelPropertyV2 = topLevelPropertyV2;
             DuplicatedProperty = duplicatedProperty;
             Child = child;
         }
 
         public Guid Id { get; private set; }
-        public string TopLevelProperty { get; private set; }
+        public string TopLevelPropertyV2 { get; private set; }
         public string DuplicatedProperty { get; private set; }
         public Child Child { get; private set; }
 
-        public void SetTopLevelProperty(string newValue)
+        public void SetTopLevelPropertyV2(string newValue)
         {
-            TopLevelProperty = newValue;
+            TopLevelPropertyV2 = newValue;
         }
     }
 }

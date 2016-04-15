@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Marten;
+using Marten.Linq;
 using MartenPlayground.Domain;
+using Npgsql;
 using Serilog;
 using Shouldly;
 
@@ -14,31 +16,40 @@ namespace MartenPlayground
         static void Main(string[] args)
         {
             //Slow startu up
-            //Migraations
+            //Migrations
+            //Dates
             //Read http://jasperfx.github.io/marten/documentation/documents/saved_queries/
-            //Server status to monitor questions
+            //Server status to monitor questions  store.Diagnostics.CommandFor(q
             //How to setup database
+            //Fix command generation ToCommand http://jasperfx.github.io/marten/documentation/documents/diagnostics/#sec3
             try
             {
                 ConfigureLogging();
                 Log.Information("Starting execution ...");
 
-                var store = CreateStore();
+                var storeV1 = CreateStoreV1();
 
-                StoreSingleDocument(store);
-                StoreSingleDocument(store);
+                StoreSingleDocument(storeV1);
+                StoreSingleDocument(storeV1);
 
-                QueryUsingRawSql(store);
-                QueryUsingRawSql(store);
+                QueryUsingRawSql(storeV1);
+                QueryUsingRawSql(storeV1);
 
-                QueryUsingNestedProperty(store);
-                QueryUsingNestedProperty(store);
+                QueryUsingNestedProperty(storeV1);
+                QueryUsingNestedProperty(storeV1);
 
-                QueryUsingDuplicatedNestedProperty(store);
-                QueryUsingDuplicatedNestedProperty(store);
+                QueryUsingDuplicatedNestedProperty(storeV1);
+                QueryUsingDuplicatedNestedProperty(storeV1);
 
-                QueryUsingPaging(store);
-                QueryUsingPaging(store);
+                QueryUsingPaging(storeV1);
+                QueryUsingPaging(storeV1);
+
+                UpdateDocument(storeV1);
+                UpdateDocument(storeV1);
+
+                var storeV2 = CreateStoreV2();
+
+                MigrateToDocumentV2(storeV1, storeV2);
             }
             catch (Exception e)
             {
@@ -46,6 +57,57 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
+        }
+
+        private static void MigrateToDocumentV2(DocumentStore storeV1, DocumentStore storeV2)
+        {
+            var documentId = StoreSingleDocumentInternal(storeV1).Id;
+
+            Meassure(() =>
+            {
+                using (var session = storeV2.OpenSession())
+                {
+                    var documentV2 = session.Load<Domain.V2.Document>(documentId);
+                    documentV2.TopLevelPropertyV2.ShouldBe(null);
+
+                    var removeProperty = new NpgsqlCommand("Update mt_doc_document SET data = data - 'TopLevelProperty'", session.Connection);
+                    removeProperty.ExecuteNonQuery();
+
+                    var addProperty = new NpgsqlCommand("Update mt_doc_document SET data = jsonb_set(data, '{TopLevelPropertyV2}', '\"TopLevelPropertyV2\"', true)", session.Connection);
+                    addProperty.ExecuteNonQuery();
+
+                    session.SaveChanges();
+                }
+            });
+
+            using (var session = storeV2.OpenSession())
+            {
+                var documentV2 = session.Load<Domain.V2.Document>(documentId);
+                documentV2.TopLevelPropertyV2.ShouldBe("TopLevelPropertyV2");
+            }
+        }
+
+        private static void UpdateDocument(DocumentStore store)
+        {
+            var document = StoreSingleDocumentInternal(store);
+
+            var newValue = Guid.NewGuid().ToString();
+            Meassure(() =>
+            {
+                using (var session = store.OpenSession())
+                {
+                    var copy = session.Load<Document>(document.Id);
+                    copy.SetTopLevelProperty(newValue);
+                    session.Store(copy);
+                    session.SaveChanges();
+                }
+            });
+
+            using (var session = store.OpenSession())
+            {
+                var copy = session.Load<Document>(document.Id);
+                copy.TopLevelProperty.ShouldBe(newValue);
+            }
         }
 
         private static void QueryUsingPaging(DocumentStore store)
@@ -63,15 +125,17 @@ namespace MartenPlayground
             {
                 using (var session = store.OpenSession())
                 {
-                    var results = session.Query<Document>().Skip(5).Take(5).Where(d => d.TopLevelProperty.Contains(searchTerm)).ToArray();
-                    results.Length.ShouldBe(5);
+                    var query = session.Query<Document>().Skip(5).Take(5).Where(d => d.TopLevelProperty.Contains(searchTerm));
+                    var text = query.ToCommand(FetchType.FetchMany);
+                    Log.Debug("Query with pagging: {Query}.", text);
+                    query.ToArray().Length.ShouldBe(5);
                 }
             });
         }
 
         private static void QueryUsingDuplicatedNestedProperty(DocumentStore store)
         {
-            var document = StoreSingleDocument(store);
+            var document = StoreSingleDocumentInternal(store);
             Meassure(() =>
             {
                 using (var session = store.OpenSession())
@@ -84,7 +148,7 @@ namespace MartenPlayground
 
         private static void QueryUsingNestedProperty(DocumentStore store)
         {
-            var document = StoreSingleDocument(store);
+            var document = StoreSingleDocumentInternal(store);
             Meassure(() =>
             {
                 using (var session = store.OpenSession())
@@ -97,7 +161,7 @@ namespace MartenPlayground
 
         private static void QueryUsingRawSql(DocumentStore store)
         {
-            var document = StoreSingleDocument(store);
+            var document = StoreSingleDocumentInternal(store);
             Meassure(() =>
             {
                 using (var session = store.OpenSession())
@@ -108,28 +172,41 @@ namespace MartenPlayground
             });
         }
 
-        private static DocumentStore CreateStore()
+        private static DocumentStore CreateStoreV1()
         {
             return DocumentStore.For(config =>
             {
                 config.Connection("host = localhost; database = marten; password = password; username = martenuser");
-                config.Schema.Include<CustomRegistry>();                
+                config.Schema.Include<CustomRegistry>();
+                config.Schema.For<Document>().DocumentAlias("document");
+            });
+        }
+
+        private static DocumentStore CreateStoreV2()
+        {
+            return DocumentStore.For(config =>
+            {
+                config.Connection("host = localhost; database = marten; password = password; username = martenuser");
+                config.Schema.Include<CustomRegistryV2>();
+                config.Schema.For<Domain.V2.Document>().DocumentAlias("document");
             });
         }
 
         private static Document StoreSingleDocument(DocumentStore store)
         {
-            return Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var document = CreateDefaultDocument();
-                    session.Store(document);
-                    session.SaveChanges();
+            return Meassure(() => StoreSingleDocumentInternal(store));
+        }
 
-                    return document;
-                }
-            });
+        private static Document StoreSingleDocumentInternal(DocumentStore store)
+        {
+            using (var session = store.OpenSession())
+            {
+                var document = CreateDefaultDocument();
+                session.Store(document);
+                session.SaveChanges();
+
+                return document;
+            }
         }
 
         public static Document CreateDefaultDocument(string topLevelProperty = null)
