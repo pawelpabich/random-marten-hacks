@@ -51,15 +51,16 @@ namespace MartenPlayground
                 QueryUsingDateRange(storeV2);
                 QueryUsingDateRange(storeV2);
 
-                StoreLotsOfData(storeV2, 10);
-                StoreLotsOfData(storeV2, 1000);
+                StoreSingleDocumentInternalV2(storeV2);
+                StoreLotsOfData(storeV2, 10, 1);
+                StoreLotsOfData(storeV2, 1000, 1);
 
                 QueryLotsOfData(storeV2, 10);
                 QueryLotsOfData(storeV2, 1000);
             }
             catch (Exception e)
             {
-                Log.Error(e, "Something went terribly wrong :(");                
+                Log.Error(e, "Something went terribly wrong :(.");                
             }
 
             Console.ReadLine();
@@ -89,22 +90,24 @@ namespace MartenPlayground
             });
         }
 
-        private static void StoreLotsOfData(DocumentStore storeV2, int users)
+        private static void StoreLotsOfData(DocumentStore storeV2, int users, int batchSize)
         {
+            var everyNTh = users / 10;
             Meassure(() =>
             {
                 var tasks = Enumerable.Range(0, users).Select(i =>
                 {
                     return Task.Run(async () =>
                     {
-                        Log.Debug("{I}th customer about to be processed.", i);
+                        if (i % everyNTh == 0) Log.Debug("{I}th customer about to be processed.", i);
                         using (var session = storeV2.OpenSession(isolationLevel:IsolationLevel.ReadCommitted))
                         {
-                            session.Store(CreateDefaultDocumentV2());
+                            var documents = Enumerable.Range(0, batchSize).Select(_ => CreateDefaultDocumentV2()).ToArray();
+                            session.StoreObjects(documents);
                             await session.SaveChangesAsync();                            
                         }
 
-                        Log.Debug("{I}th customer done.", i);
+                        if (i % everyNTh == 0) Log.Debug("{I}th customer done.", i);
                     });
                 }).ToArray();
 
@@ -150,7 +153,6 @@ namespace MartenPlayground
 
                     var removeProperty = new NpgsqlCommand("Update mt_doc_document SET data = data - 'TopLevelProperty'", session.Connection);
                     removeProperty.ExecuteNonQuery();
-
                     
                     var addCommand = "Update mt_doc_document SET data = jsonb_set(data, '{DateTimeAsUnixTime}', '" + nowAsUnixTime + "', true)";
                     var addProperty = new NpgsqlCommand(addCommand, session.Connection);
@@ -206,8 +208,8 @@ namespace MartenPlayground
                 using (var session = store.OpenSession())
                 {
                     var query = session.Query<Document>().Skip(5).Take(5).Where(d => d.TopLevelProperty.Contains(searchTerm));
-                    var text = query.ToCommand(FetchType.FetchMany);
-                    Log.Debug("Query with pagging: {Query}.", text);
+                    var command = query.ToCommand(FetchType.FetchMany);
+                    Log.Debug("Query with pagging: {Query}.", command.CommandText);
                     query.ToArray().Length.ShouldBe(5);
                 }
             });
@@ -266,7 +268,7 @@ namespace MartenPlayground
         {
             return DocumentStore.For(config =>
             {
-                config.Connection("host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 10");
+                config.Connection("host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 75;Minimum Pool Size = 75");
                 config.Schema.Include<CustomRegistryV2>();
                 config.Schema.For<Domain.V2.Document>().DocumentAlias("document");
             });
@@ -286,6 +288,15 @@ namespace MartenPlayground
                 session.SaveChanges();
 
                 return document;
+            }
+        }
+
+        private static void StoreSingleDocumentInternalV2(DocumentStore store)
+        {
+            using (var session = store.OpenSession())
+            {
+                session.Store(CreateDefaultDocumentV2());
+                session.SaveChanges();
             }
         }
 
