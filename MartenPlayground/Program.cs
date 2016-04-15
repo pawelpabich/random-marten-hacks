@@ -1,66 +1,51 @@
 ﻿using System;
-using System.Data;
-using System.Diagnostics;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using Marten;
-using Marten.Linq;
-using Marten.Schema;
-using Marten.Util;
-using MartenPlayground.Config;
-using MartenPlayground.Domain;
-using Npgsql;
 using Serilog;
-using Shouldly;
 
 namespace MartenPlayground
 {
     class Program
     {
-        private const string ConnectionString = "host = localhost; database = marten; password = password; username = martenuser;Maximum Pool Size = 50;Minimum Pool Size = 50";
-
         static void Main(string[] args)
         {
             try
             {
                 //Marten can take up to 6 seconds to start up. Details here: https://github.com/JasperFx/marten/issues/289
-                ConfigureLogging();
+                ConfigureLogging.Run();
                 Log.Information("Starting execution ...");
 
-                //var storeV1 = CreateStoreV1();
+                var storeV1 = CreateStore.V1();
 
-                //StoreSingleDocument(storeV1);
-                //StoreSingleDocument(storeV1);
+                StoreSingleDocument.Run(storeV1);
+                StoreSingleDocument.Run(storeV1);
 
-                //QueryUsingRawSql(storeV1);
-                //QueryUsingRawSql(storeV1);
+                QueryUsingRawSql.Run(storeV1);
+                QueryUsingRawSql.Run(storeV1);
 
-                //QueryUsingNestedProperty(storeV1);
-                //QueryUsingNestedProperty(storeV1);
+                QueryUsingNestedProperty.Run(storeV1);
+                QueryUsingNestedProperty.Run(storeV1);
 
-                //QueryUsingDuplicatedNestedProperty(storeV1);
-                //QueryUsingDuplicatedNestedProperty(storeV1);
+                QueryUsingDuplicatedNestedProperty.Run(storeV1);
+                QueryUsingDuplicatedNestedProperty.Run(storeV1);
 
-                //QueryUsingPaging(storeV1);
-                //QueryUsingPaging(storeV1);
+                QueryUsingPaging.Run(storeV1);
+                QueryUsingPaging.Run(storeV1);
 
-                //UpdateDocument(storeV1);
-                //UpdateDocument(storeV1);
+                UpdateDocument.Run(storeV1);
+                UpdateDocument.Run(storeV1);
 
-                var storeV2 = CreateStoreV2();
+                var storeV2 = CreateStore.V2();
 
-                //MigrateToDocumentV2(storeV1, storeV2);
+                MigrateToDocumentV2.Run(storeV1, storeV2);
 
-                //QueryUsingDateRange(storeV2);
-                //QueryUsingDateRange(storeV2);
+                QueryUsingDateRange.Run(storeV2);
+                QueryUsingDateRange.Run(storeV2);
 
-                StoreSingleDocumentInternalV2(storeV2);
-                StoreLotsOfData(storeV2, 10, 1);
-                StoreLotsOfData(storeV2, 1000, 10);
+                StoreSingleDocumentInternalV2.Run(storeV2);
+                StoreLotsOfData.Run(storeV2, 10, 1);
+                StoreLotsOfData.Run(storeV2, 1000, 1);
 
-               // QueryLotsOfData(storeV2, 10);
-               // QueryLotsOfData(storeV2, 1000);
+                QueryLotsOfData.Run(storeV2, 10);
+                QueryLotsOfData.Run(storeV2, 1000);
             }
             catch (Exception e)
             {
@@ -68,290 +53,6 @@ namespace MartenPlayground
             }
 
             Console.ReadLine();
-        }
-
-        private static void QueryLotsOfData(DocumentStore storeV2, int users)
-        {
-            var everyNTh = users / 10;
-
-            Meassure(() =>
-            {
-                var tasks = Enumerable.Range(0, users).Select(i =>
-                {
-                    return Task.Run(async () =>
-                    {
-                        if (i % everyNTh == 0) Log.Debug("{I}th customer about to be processed.", i);
-                        using (var session = storeV2.OpenSession(isolationLevel: IsolationLevel.ReadCommitted))
-                        {
-                            await session.Query<Domain.V2.Document>().Take(5).ToListAsync();
-                        }
-
-                        if (i % everyNTh == 0) Log.Debug("{I}th customer done.", i);
-                    });
-                }).ToArray();
-
-                Log.Information("All tasks created: {Number}.", tasks.Length);
-
-                Task.WaitAll(tasks);
-            });
-        }
-
-        private static void StoreLotsOfData(DocumentStore storeV2, int users, int batchSize)
-        {
-            var everyNTh = users / 10;
-            Meassure(() =>
-            {
-                var tasks = Enumerable.Range(0, users).Select(i =>
-                {
-                    return Task.Run(async () =>
-                    {
-                        if (i % everyNTh == 0) Log.Debug("{I}th customer about to be processed.", i);
-                        using (var session = storeV2.OpenSession(isolationLevel:IsolationLevel.ReadCommitted))
-                        {
-                            var documents = Enumerable.Range(0, batchSize).Select(_ => CreateDefaultDocumentV2()).ToArray();
-                            session.StoreObjects(documents);
-                            await session.SaveChangesAsync();                            
-                        }
-
-                        if (i % everyNTh == 0) Log.Debug("{I}th customer done.", i);
-                    });
-                }).ToArray();
-
-                Log.Information("All tasks created: {Number}.", tasks.Length);
-
-                Task.WaitAll(tasks);
-            });      
-        }
-
-        private static void QueryUsingDateRange(DocumentStore storeV2)
-        {
-            var dateTime = DateTimeOffset.UtcNow;
-            var searchText = Guid.NewGuid().ToString();
-
-            using (var session = storeV2.OpenSession())
-            {
-                var documents = Enumerable.Range(0, 10).Select(i => CreateDefaultDocumentV2(dateTime.AddDays(i), searchText));
-                session.StoreObjects(documents);
-                session.SaveChanges();
-            }
-
-            Meassure(() =>
-            {
-                using (var session = storeV2.OpenSession())
-                {
-                    var future = dateTime.AddDays(4.5).ToUnixTimeMilliseconds();
-                    var results = session.Query<Domain.V2.Document>().Where(d => d.DateTimeAsUnixTime > future && d.TopLevelProperty == searchText).ToArray();
-                    results.Length.ShouldBe(5);
-                }
-            });
-        }
-
-        private static void MigrateToDocumentV2(DocumentStore storeV1, DocumentStore storeV2)
-        {
-            var documentId = StoreSingleDocumentInternal(storeV1).Id;
-            var nowAsUnixTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            Meassure(() =>
-            {
-                using (var session = storeV2.OpenSession())
-                {
-                    var documentV2 = session.Load<Domain.V2.Document>(documentId);
-                    documentV2.DateTimeAsUnixTime.ShouldBe(0);
-
-                    var removeProperty = new NpgsqlCommand("Update mt_doc_document SET data = data - 'TopLevelProperty'", session.Connection);
-                    removeProperty.ExecuteNonQuery();
-                    
-                    var addCommand = "Update mt_doc_document SET data = jsonb_set(data, '{DateTimeAsUnixTime}', '" + nowAsUnixTime + "', true)";
-                    var addProperty = new NpgsqlCommand(addCommand, session.Connection);
-                    addProperty.ExecuteNonQuery();
-
-                    session.SaveChanges();
-                }
-            });
-
-            using (var session = storeV2.OpenSession())
-            {
-                var documentV2 = session.Load<Domain.V2.Document>(documentId);
-                documentV2.DateTimeAsUnixTime.ShouldBe(nowAsUnixTime);
-            }
-        }
-
-        private static void UpdateDocument(DocumentStore store)
-        {
-            var document = StoreSingleDocumentInternal(store);
-
-            var newValue = Guid.NewGuid().ToString();
-            Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var copy = session.Load<Document>(document.Id);
-                    copy.SetTopLevelProperty(newValue);
-                    session.Store(copy);
-                    session.SaveChanges();
-                }
-            });
-
-            using (var session = store.OpenSession())
-            {
-                var copy = session.Load<Document>(document.Id);
-                copy.TopLevelProperty.ShouldBe(newValue);
-            }
-        }
-
-        private static void QueryUsingPaging(DocumentStore store)
-        {
-            var searchTerm = Guid.NewGuid().ToString();
-
-            using (var session = store.OpenSession())
-            {
-                var documents= Enumerable.Range(0, 10).Select(i => MartenPlayground.CreateDefaultDocumentV1.Run(searchTerm + i));
-                session.StoreObjects(documents);
-                session.SaveChanges();
-            }
-
-            Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var query = session.Query<Document>().Skip(5).Take(5).Where(d => d.TopLevelProperty.Contains(searchTerm));
-                    var command = query.ToCommand(FetchType.FetchMany);
-                    Log.Debug("Query with pagging: {Query}.", command.CommandText);
-                    query.ToArray().Length.ShouldBe(5);
-                }
-            });
-        }
-
-        private static void QueryUsingDuplicatedNestedProperty(DocumentStore store)
-        {
-            var document = StoreSingleDocumentInternal(store);
-            Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var result = session.Query<Document>().Single(d => d.Child.DuplicatedNestedProperty == document.Child.DuplicatedNestedProperty);
-                    result.Child.DuplicatedNestedProperty.ShouldBe(document.Child.DuplicatedNestedProperty);
-                }
-            });
-        }
-
-        private static void QueryUsingNestedProperty(DocumentStore store)
-        {
-            var document = StoreSingleDocumentInternal(store);
-            Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var result = session.Query<Document>().Single(d => d.Child.NestedProperty == document.Child.NestedProperty);
-                    result.Child.NestedProperty.ShouldBe(document.Child.NestedProperty);
-                }
-            });
-        }
-
-        private static void QueryUsingRawSql(DocumentStore store)
-        {
-            var document = StoreSingleDocumentInternal(store);
-            Meassure(() =>
-            {
-                using (var session = store.OpenSession())
-                {
-                    var result = session.Query<Document>($"where data->> 'TopLevelProperty' = '{document.TopLevelProperty}'").Single();
-                    result.TopLevelProperty.ShouldBe(document.TopLevelProperty);
-                }
-            });
-        }
-
-        private static DocumentStore CreateStoreV1()
-        {
-            return DocumentStore.For(config =>
-            {
-                config.Connection(ConnectionString);
-                config.Schema.Include<CustomRegistry>();
-                config.Schema.For<Document>().DocumentAlias("document");
-                config.UpsertType = PostgresUpsertType.Standard;
-            });
-        }
-
-        private static DocumentStore CreateStoreV2()
-        {
-            return DocumentStore.For(config =>
-            {
-                config.Connection(ConnectionString);
-                config.Schema.Include<CustomRegistryV2>();
-                config.Schema.For<Domain.V2.Document>().DocumentAlias("document");
-                config.UpsertType = PostgresUpsertType.Standard;
-            });
-        }
-
-        private static void StoreSingleDocument(DocumentStore store)
-        {
-            Meassure(() => StoreSingleDocumentInternal(store));
-        }
-
-        private static Document StoreSingleDocumentInternal(DocumentStore store)
-        {
-            using (var session = store.OpenSession())
-            {
-                var document = MartenPlayground.CreateDefaultDocumentV1.Run();
-                session.Store(document);
-                session.SaveChanges();
-
-                return document;
-            }
-        }
-
-        private static void StoreSingleDocumentInternalV2(DocumentStore store)
-        {
-            using (var session = store.OpenSession())
-            {
-                session.Store(CreateDefaultDocumentV2());
-                session.SaveChanges();
-            }
-        }
-
-        public static Domain.V2.Document CreateDefaultDocumentV2(DateTimeOffset? dateTime = null, string topLevelProperty = null)
-        {           
-            dateTime = dateTime ?? DateTimeOffset.UtcNow;
-            topLevelProperty = topLevelProperty ?? Guid.NewGuid().ToString();
-
-            var child = new Child(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
-            return new Domain.V2.Document(Guid.NewGuid(), topLevelProperty, Guid.NewGuid().ToString(),
-                                          dateTime.Value.ToUnixTimeMilliseconds(), child);
-        }
-
-        private static void ConfigureLogging()
-        {
-            Log.Logger = new LoggerConfiguration()
-                                .MinimumLevel.Debug()
-                                .WriteTo.LiterateConsole()
-                                .CreateLogger();
-        }
-
-        private static void Meassure(Action action, [CallerMemberName] string memberName = "")
-        {
-            var stopwatch = Stopwatch.StartNew();
-            action();
-            stopwatch.Stop();
-            var message = $"{memberName} took: {stopwatch.Elapsed.TotalMilliseconds} ms.";
-            if (stopwatch.Elapsed < TimeSpan.FromSeconds(1))
-            {
-                Log.Information(message);
-            }
-            else
-            {
-                Log.Warning(message);
-            }
-        }
-
-        private static TResult Meassure<TResult>(Func<TResult> func, [CallerMemberName] string memberName = "")
-        {
-            var result = default(TResult);
-            Action action = () =>
-            {
-                result = func();
-            };
-
-            Meassure(action, memberName);
-            return result;            
         }
     }
 }
